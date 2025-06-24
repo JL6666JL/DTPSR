@@ -8,7 +8,6 @@ wandb/*
 tmp/*
 tmp*
 .vscode*
-*.sh
 *.xlsx
 preset/models
 detectron2/

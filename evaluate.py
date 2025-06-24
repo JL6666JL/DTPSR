@@ -39,13 +39,12 @@ def main():
     parser.add_argument("--sr_dir", type=str, default=None)
     args = parser.parse_args()
     steps = args.steps
-    sr_dir = args.sr_dir
-    # datasets = ["DIV2K_V2_val", "RealSRVal_crop128", "DrealSRVal_crop128"]
-    datasets = ["RealSRVal_crop128", "DrealSRVal_crop128"]
+    datasets = ["DIV2K_V2_val", "RealSRVal_crop128", "DrealSRVal_crop128"]
+    # datasets = ["RealSRVal_crop128", "DrealSRVal_crop128"]
     for dataset in datasets:
         hr_dir = f"/data1/jianglei/work/dataset/HoliSDiP/StableSR_testsets/{dataset}/gt"
-        sr_dir= os.path.join(sr_dir, dataset, "samples")
-        save_path = "/data2/jianglei/HoliSDiP/results/HoliSDiP_lfhf.xlsx"
+        sr_dir= os.path.join(args.sr_dir, dataset, "samples")
+        save_path = "/data2/jianglei/HoliSDiP/results/ca_hf_lf_fix_CFG_hflfneg.xlsx"
 
         # 创建 `pyiqa` 评估器
         metrics_dict = {

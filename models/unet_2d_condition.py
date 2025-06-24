@@ -56,7 +56,7 @@ class UNet2DConditionOutput(BaseOutput):
 
     Args:
         sample (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
-            The hidden states output conditioned on `encoder_hidden_states` input. Output of last layer of model.
+            The hidden states output conditioned on `hf_encoder_hidden_states` input. Output of last layer of model.
     """
 
     sample: torch.FloatTensor = None
@@ -105,10 +105,10 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
             [`~models.unet_2d_blocks.CrossAttnDownBlock2D`], [`~models.unet_2d_blocks.CrossAttnUpBlock2D`],
             [`~models.unet_2d_blocks.UNetMidBlock2DCrossAttn`].
         encoder_hid_dim (`int`, *optional*, defaults to None):
-            If `encoder_hid_dim_type` is defined, `encoder_hidden_states` will be projected from `encoder_hid_dim`
+            If `encoder_hid_dim_type` is defined, `hf_encoder_hidden_states` will be projected from `encoder_hid_dim`
             dimension to `cross_attention_dim`.
         encoder_hid_dim_type (`str`, *optional*, defaults to `None`):
-            If given, the `encoder_hidden_states` and potentially other embeddings are down-projected to text
+            If given, the `hf_encoder_hidden_states` and potentially other embeddings are down-projected to text
             embeddings of dimension `cross_attention` according to `encoder_hid_dim_type`.
         attention_head_dim (`int`, *optional*, defaults to 8): The dimension of the attention heads.
         num_attention_heads (`int`, *optional*):
@@ -728,7 +728,8 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
         self,
         sample: torch.FloatTensor,
         timestep: Union[torch.Tensor, float, int],
-        encoder_hidden_states: torch.Tensor,
+        hf_encoder_hidden_states: torch.Tensor,
+        lf_encoder_hidden_states: torch.Tensor,
         caption_encoder_hidden_states: torch.Tensor,
         class_labels: Optional[torch.Tensor] = None,
         timestep_cond: Optional[torch.Tensor] = None,
@@ -751,10 +752,10 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
             sample (`torch.FloatTensor`):
                 The noisy input tensor with the following shape `(batch, channel, height, width)`.
             timestep (`torch.FloatTensor` or `float` or `int`): The number of timesteps to denoise an input.
-            encoder_hidden_states (`torch.FloatTensor`):
+            hf_encoder_hidden_states (`torch.FloatTensor`):
                 The encoder hidden states with shape `(batch, sequence_length, feature_dim)`.
             encoder_attention_mask (`torch.Tensor`):
-                A cross-attention mask of shape `(batch, sequence_length)` is applied to `encoder_hidden_states`. If
+                A cross-attention mask of shape `(batch, sequence_length)` is applied to `hf_encoder_hidden_states`. If
                 `True` the mask is kept, otherwise if `False` it is discarded. Mask will be converted into a bias,
                 which adds large negative values to the attention scores corresponding to "discard" tokens.
             return_dict (`bool`, *optional*, defaults to `True`):
@@ -800,7 +801,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
             #       (keep = +0,     discard = -10000.0)
             attention_mask = (1 - attention_mask.to(sample.dtype)) * -10000.0
             attention_mask = attention_mask.unsqueeze(1)
-
+        
         # convert encoder_attention_mask to a bias the same way we do for attention_mask
         if encoder_attention_mask is not None:
             encoder_attention_mask = (1 - encoder_attention_mask.to(sample.dtype)) * -10000.0
@@ -857,7 +858,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
         
         # None
         if self.config.addition_embed_type == "text":
-            aug_emb = self.add_embedding(encoder_hidden_states)
+            aug_emb = self.add_embedding(hf_encoder_hidden_states)
         elif self.config.addition_embed_type == "text_image":
             # Kandinsky 2.1 - style
             if "image_embeds" not in added_cond_kwargs:
@@ -866,7 +867,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                 )
 
             image_embs = added_cond_kwargs.get("image_embeds")
-            text_embs = added_cond_kwargs.get("text_embeds", encoder_hidden_states)
+            text_embs = added_cond_kwargs.get("text_embeds", hf_encoder_hidden_states)
             aug_emb = self.add_embedding(text_embs, image_embs)
         elif self.config.addition_embed_type == "text_time":
             # SDXL - style
@@ -912,7 +913,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
 
         # self.encoder_hid_proj是None，以下都不成立
         if self.encoder_hid_proj is not None and self.config.encoder_hid_dim_type == "text_proj":
-            encoder_hidden_states = self.encoder_hid_proj(encoder_hidden_states)
+            hf_encoder_hidden_states = self.encoder_hid_proj(hf_encoder_hidden_states)
         elif self.encoder_hid_proj is not None and self.config.encoder_hid_dim_type == "text_image_proj":
             # Kadinsky 2.1 - style
             if "image_embeds" not in added_cond_kwargs:
@@ -921,7 +922,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                 )
 
             image_embeds = added_cond_kwargs.get("image_embeds")
-            encoder_hidden_states = self.encoder_hid_proj(encoder_hidden_states, image_embeds)
+            hf_encoder_hidden_states = self.encoder_hid_proj(hf_encoder_hidden_states, image_embeds)
         elif self.encoder_hid_proj is not None and self.config.encoder_hid_dim_type == "image_proj":
             # Kandinsky 2.2 - style
             if "image_embeds" not in added_cond_kwargs:
@@ -929,7 +930,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                     f"{self.__class__} has the config param `encoder_hid_dim_type` set to 'image_proj' which requires the keyword argument `image_embeds` to be passed in  `added_conditions`"
                 )
             image_embeds = added_cond_kwargs.get("image_embeds")
-            encoder_hidden_states = self.encoder_hid_proj(image_embeds)
+            hf_encoder_hidden_states = self.encoder_hid_proj(image_embeds)
         
         # 2. pre-process
         sample = self.conv_in(sample)
@@ -957,7 +958,8 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                 sample, res_samples = downsample_block(
                     hidden_states=sample,
                     temb=emb,
-                    encoder_hidden_states=encoder_hidden_states,
+                    hf_encoder_hidden_states=hf_encoder_hidden_states,
+                    lf_encoder_hidden_states=lf_encoder_hidden_states,
                     caption_encoder_hidden_states=caption_encoder_hidden_states,
                     attention_mask=attention_mask,
                     cross_attention_kwargs=cross_attention_kwargs,
@@ -992,7 +994,8 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
             sample = self.mid_block(
                 sample,
                 emb,
-                encoder_hidden_states=encoder_hidden_states,
+                hf_encoder_hidden_states=hf_encoder_hidden_states,
+                lf_encoder_hidden_states=lf_encoder_hidden_states,
                 caption_encoder_hidden_states=caption_encoder_hidden_states,
                 attention_mask=attention_mask,
                 cross_attention_kwargs=cross_attention_kwargs,
@@ -1030,7 +1033,8 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                     hidden_states=sample,
                     temb=emb,
                     res_hidden_states_tuple=res_samples,
-                    encoder_hidden_states=encoder_hidden_states,
+                    hf_encoder_hidden_states=hf_encoder_hidden_states,
+                    lf_encoder_hidden_states=lf_encoder_hidden_states,
                     caption_encoder_hidden_states=caption_encoder_hidden_states,
                     cross_attention_kwargs=cross_attention_kwargs,
                     upsample_size=upsample_size,

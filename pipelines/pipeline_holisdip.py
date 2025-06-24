@@ -313,8 +313,13 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
         num_images_per_prompt,
         do_classifier_free_guidance,
         negative_prompt=None,
+        max_tensors=5,
         prompt_embeds: Optional[torch.FloatTensor] = None,
+        cat_hf_emb: Optional[torch.FloatTensor] = None,
+        cat_lf_emb: Optional[torch.FloatTensor] = None,
         negative_prompt_embeds: Optional[torch.FloatTensor] = None,
+        hf_negative_prompt_embeds: Optional[torch.FloatTensor] = None,
+        lf_negative_prompt_embeds: Optional[torch.FloatTensor] = None,
         ram_encoder_hidden_states: Optional[torch.FloatTensor] = None,
     ):
         r"""
@@ -420,6 +425,7 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
                 uncond_tokens = self.maybe_convert_prompt(uncond_tokens, self.tokenizer)
 
             max_length = prompt_embeds.shape[1]
+
             uncond_input = self.tokenizer(
                 uncond_tokens,
                 padding="max_length",
@@ -427,6 +433,7 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
                 truncation=True,
                 return_tensors="pt",
             )
+
 
             if hasattr(self.text_encoder.config, "use_attention_mask") and self.text_encoder.config.use_attention_mask:
                 attention_mask = uncond_input.attention_mask.to(device)
@@ -453,9 +460,11 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
             # Here we concatenate the unconditional and text embeddings into a single batch
             # to avoid doing two forward passes
             prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds])
+            cat_hf_emb = torch.cat([hf_negative_prompt_embeds.repeat(1,max_tensors,1), cat_hf_emb])
+            cat_lf_emb = torch.cat([lf_negative_prompt_embeds.repeat(1,max_tensors,1), cat_lf_emb])
             ram_encoder_hidden_states = torch.cat([ram_encoder_hidden_states, ram_encoder_hidden_states])
 
-        return prompt_embeds, ram_encoder_hidden_states
+        return prompt_embeds, cat_hf_emb, cat_lf_emb, ram_encoder_hidden_states
 
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.run_safety_checker
     def run_safety_checker(self, image, device, dtype):
@@ -789,6 +798,8 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
         image: Union[torch.FloatTensor, PIL.Image.Image, List[torch.FloatTensor], List[PIL.Image.Image]] = None,
         scm_hf: Union[torch.FloatTensor, PIL.Image.Image, List[torch.FloatTensor], List[PIL.Image.Image]] = None,
         scm_lf: Union[torch.FloatTensor, PIL.Image.Image, List[torch.FloatTensor], List[PIL.Image.Image]] = None,
+        cat_hf_emb: Optional[torch.FloatTensor] = None,
+        cat_lf_emb: Optional[torch.FloatTensor] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
         num_inference_steps: int = 50,
@@ -799,8 +810,9 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
         generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
         latents: Optional[torch.FloatTensor] = None,
         prompt_embeds: Optional[torch.FloatTensor] = None,
-        caption_embeds: Optional[torch.FloatTensor] = None,
         negative_prompt_embeds: Optional[torch.FloatTensor] = None,
+        hf_negative_prompt_embeds: Optional[torch.FloatTensor] = None,
+        lf_negative_prompt_embeds: Optional[torch.FloatTensor] = None,
         output_type: Optional[str] = "pil",
         return_dict: bool = True,
         callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
@@ -947,16 +959,21 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
         """
 
         # 3. Encode input prompt
-        prompt_embeds, ram_encoder_hidden_states = self._encode_prompt(
+        prompt_embeds,cat_hf_emb,cat_lf_emb, ram_encoder_hidden_states = self._encode_prompt(
             prompt,
             device,
             num_images_per_prompt,
             do_classifier_free_guidance,
             negative_prompt,
             prompt_embeds=prompt_embeds,
+            cat_hf_emb=cat_hf_emb,
+            cat_lf_emb=cat_lf_emb,
             negative_prompt_embeds=negative_prompt_embeds,
+            hf_negative_prompt_embeds=hf_negative_prompt_embeds,
+            lf_negative_prompt_embeds=lf_negative_prompt_embeds,
             ram_encoder_hidden_states=ram_encoder_hidden_states
         )
+
 
         # 4. Prepare image
         image = self.prepare_image(
@@ -1039,8 +1056,9 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
                     down_block_res_samples, mid_block_res_sample = self.controlnet(
                         controlnet_latent_model_input,
                         t,
-                        encoder_hidden_states=controlnet_prompt_embeds,
-                        caption_encoder_hidden_states=caption_embeds,
+                        hf_encoder_hidden_states=cat_hf_emb,
+                        lf_encoder_hidden_states=cat_lf_emb,
+                        caption_encoder_hidden_states=controlnet_prompt_embeds,
                         controlnet_cond=image[:1],
                         conditioning_scale=conditioning_scale,
                         guess_mode=guess_mode,
@@ -1063,8 +1081,9 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
                     noise_pred = self.unet(
                         latent_model_input,
                         t,
-                        encoder_hidden_states=prompt_embeds,
-                        caption_encoder_hidden_states=caption_embeds,
+                        hf_encoder_hidden_states=cat_hf_emb,
+                        lf_encoder_hidden_states=cat_lf_emb,
+                        caption_encoder_hidden_states=controlnet_prompt_embeds,
                         cross_attention_kwargs=cross_attention_kwargs,
                         down_block_additional_residuals=down_block_res_samples,
                         mid_block_additional_residual=mid_block_res_sample,
@@ -1130,8 +1149,9 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
                                 down_block_res_samples, mid_block_res_sample = self.controlnet(
                                     cond_list_t,
                                     t,
-                                    encoder_hidden_states=controlnet_prompt_embeds,
-                                    caption_encoder_hidden_states=caption_embeds,
+                                    hf_encoder_hidden_states=cat_hf_emb,
+                                    lf_encoder_hidden_states=cat_lf_emb,
+                                    caption_encoder_hidden_states=controlnet_prompt_embeds,
                                     controlnet_cond=img_list_t,
                                     conditioning_scale=conditioning_scale,
                                     guess_mode=guess_mode,
@@ -1153,8 +1173,9 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
                                 model_out = self.unet(
                                     input_list_t,
                                     t,
-                                    encoder_hidden_states=prompt_embeds,
-                                    caption_encoder_hidden_states=caption_embeds,
+                                    hf_encoder_hidden_states=cat_hf_emb,
+                                    lf_encoder_hidden_states=cat_lf_emb,
+                                    caption_encoder_hidden_states=controlnet_prompt_embeds,
                                     cross_attention_kwargs=cross_attention_kwargs,
                                     down_block_additional_residuals=down_block_res_samples,
                                     mid_block_additional_residual=mid_block_res_sample,

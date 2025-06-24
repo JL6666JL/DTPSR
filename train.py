@@ -65,9 +65,9 @@ check_min_version("0.21.0.dev0")
 logger = get_logger(__name__)
 
 from torchvision import transforms
-tensor_transforms = transforms.Compose([
-                transforms.ToTensor(),
-            ])
+# tensor_transforms = transforms.Compose([
+#                 transforms.ToTensor(),
+#             ])
 ram_transforms = transforms.Compose([
             transforms.Resize((384, 384)),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
@@ -82,23 +82,22 @@ from detectron2.utils.visualizer import Visualizer, ColorMode
 from detectron2.data import MetadataCatalog
 from detectron2.projects.deeplab import add_deeplab_config
 from detectron2.checkpoint import DetectionCheckpointer
-ade20k_metadata = MetadataCatalog.get("ade20k_sem_seg_val")
 
 from Mask2Former.mask2former import add_maskformer2_config
 from Mask2Former.train_net import Trainer
 from utils.seg_class import ADE20K_150_CATEGORIES
 
-seseg_cfg = get_cfg()
-add_deeplab_config(seseg_cfg)
-add_maskformer2_config(seseg_cfg)
-seseg_cfg.merge_from_file("./preset/models/mask2former/semantic-segmentation/config/ade20k-maskformer2_swin_large_IN21k_384_bs16_160k_res640.yaml")
-seseg_cfg.MODEL.WEIGHTS = "./preset/models/mask2former/semantic-segmentation/model_final_6b4a3a.pkl"
-seseg_cfg.MODEL.MASK_FORMER.TEST.SEMANTIC_ON = True
+# seseg_cfg = get_cfg()
+# add_deeplab_config(seseg_cfg)
+# add_maskformer2_config(seseg_cfg)
+# seseg_cfg.merge_from_file("./preset/models/mask2former/semantic-segmentation/config/ade20k-maskformer2_swin_large_IN21k_384_bs16_160k_res640.yaml")
+# seseg_cfg.MODEL.WEIGHTS = "./preset/models/mask2former/semantic-segmentation/model_final_6b4a3a.pkl"
+# seseg_cfg.MODEL.MASK_FORMER.TEST.SEMANTIC_ON = True
 
-ADE20k_COLORS = [k["color"] for k in ADE20K_150_CATEGORIES]
-ADE20k_NAMES = [k["name"] for k in ADE20K_150_CATEGORIES]
-for i, name in enumerate(ADE20k_NAMES):
-    ADE20k_NAMES[i] = name.split(",")[0]
+# ADE20k_COLORS = [k["color"] for k in ADE20K_150_CATEGORIES]
+# ADE20k_NAMES = [k["name"] for k in ADE20K_150_CATEGORIES]
+# for i, name in enumerate(ADE20k_NAMES):
+#     ADE20k_NAMES[i] = name.split(",")[0]
 ######################################################
 
 def image_grid(imgs, rows, cols):
@@ -413,7 +412,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--dataloader_num_workers",
         type=int,
-        default=0,
+        default=8,
         help=(
             "Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process."
         ),
@@ -589,7 +588,8 @@ def parse_args(input_args=None):
     parser.add_argument("--null_text_ratio", type=float, default=0)
     parser.add_argument("--ram_ft_path", type=str, default='preset/models/DAPE.pth')
     parser.add_argument("--data_loader_config", type=str, default='./dataloaders/config.yml')
-    parser.add_argument('--trainable_modules', nargs='*', type=str, default=["image_attentions", "msft_down", "msft_mid", "msft_up"])
+    # "image_attentions", "caption_attentions", "lf_attentions"
+    parser.add_argument('--trainable_modules', nargs='*', type=str, default=["image_attentions", "caption_attentions", "lf_attentions"])
 
     if input_args is not None:
         args = parser.parse_args(input_args)
@@ -713,7 +713,6 @@ else:
     )
     print(f'===== if use ram encoder? {unet.config.use_image_cross_attention}')
 
-
 # None
 if args.controlnet_model_name_or_path:
     # resume from self-train
@@ -768,6 +767,7 @@ for name, module in unet.named_modules():
         print(f'{name} in <unet> will be optimized.' )
         for params in module.parameters():
             params.requires_grad = True
+
 
 ## init the RAM or DAPE model
 from ram.models.ram_lora import ram
@@ -866,7 +866,8 @@ def custom_collate(batch):
     collated = {}
     
     # 1. 合并常规字段（直接用 default_collate）
-    regular_keys = ['gt', 'kernel1', 'kernel2', 'sinc_kernel', 'caption_emb', 'panoptic_seg']
+    regular_keys = ['gt', 'kernel1', 'kernel2', 'sinc_kernel', 'caption_emb', 
+                    'panoptic_seg', "cat_hf_emb", "cat_lf_emb", "hf_lf_attention_mask"]
     for key in regular_keys:
         collated[key] = default_collate([item[key] for item in batch])
 
@@ -881,6 +882,7 @@ def custom_collate(batch):
 opt = OmegaConf.load(args.data_loader_config)
 train_dataset = DataLoader(opt)
 
+
 train_dataloader = torch.utils.data.DataLoader(
     train_dataset,
     num_workers=args.dataloader_num_workers,
@@ -890,6 +892,7 @@ train_dataloader = torch.utils.data.DataLoader(
     collate_fn=custom_collate  
 )
 
+# SeeeSR的代码中没有这个
 realesrgan_degradation = RealesrganDegradation(args_degradation=opt)
 
 # Scheduler and math around the number of training steps.
@@ -924,9 +927,9 @@ elif accelerator.mixed_precision == "bf16":
     weight_dtype = torch.bfloat16
 
 # create a segmentation model and mask tensor
-seg_model = Trainer.build_model(seseg_cfg)
-DetectionCheckpointer(seg_model).load(seseg_cfg.MODEL.WEIGHTS)
-seg_model.eval().to(accelerator.device)
+# seg_model = Trainer.build_model(seseg_cfg)
+# DetectionCheckpointer(seg_model).load(seseg_cfg.MODEL.WEIGHTS)
+# seg_model.eval().to(accelerator.device)
 masks = torch.zeros((args.train_batch_size, 3, args.resolution, args.resolution)).to(accelerator.device, dtype=weight_dtype)
 
 # Move vae, unet and text_encoder to device and cast to weight_dtype
@@ -944,30 +947,12 @@ args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_ep
 # build the CLIP embedding of ADE20k categories
 max_length = 1 # the max length of the clip embedding of the category
 scm_dim = max_length*1024
-scm_list = torch.zeros(len(ADE20k_NAMES), scm_dim, device=accelerator.device)
+# scm_list = torch.zeros(len(ADE20k_NAMES), scm_dim, device=accelerator.device)
 # scm_init = torch.zeros((args.train_batch_size, args.resolution, args.resolution, scm_dim)).to(accelerator.device)
 mask_init = torch.zeros((args.train_batch_size, 3, args.resolution, args.resolution)).to(accelerator.device)
-for i, name in enumerate(ADE20k_NAMES):
-    class_token = tokenizer(name, return_tensors="pt")
-    class_token.input_ids = class_token.input_ids[0][1].unsqueeze(0) # only take the first token
-
-    # shape: [1024]
-    scm_list[i] = text_encoder(class_token.input_ids.to(accelerator.device))[0].squeeze(0).view(-1)
-print(f"Finished building CLIP embeddings for ADE20k categories")
 
 scm_encoder = SCM_encoder(input_nc=scm_dim)
 dcm_encoder = DCM_encoder()
-# if args.resume_from_checkpoint is not None:
-#     logger.info("Loading scm_encoder weights")
-#     scm_encoder.load_state_dict(torch.load(os.path.join(args.output_dir, "scm_encoder.pth")))
-#     logger.info("Loading dcm_encoder weights")
-#     dcm_encoder.load_state_dict(torch.load(os.path.join(args.output_dir, "dcm_encoder.pth")))
-# else:
-#     logger.info("Initializing scm_encoder weights")
-#     logger.info("Initializing dcm_encoder weights")
-
-# scm_encoder.to(accelerator.device, dtype=weight_dtype)
-# dcm_encoder.to(accelerator.device, dtype=weight_dtype)
 
 # We need to initialize the trackers we use, and also store our configuration.
 # The trackers initializes automatically on the main process.
@@ -1054,10 +1039,10 @@ for epoch in range(first_epoch, args.num_train_epochs):
 
         with accelerator.accumulate(controlnet), accelerator.accumulate(unet):
             # pixel_values = hr_batch.to(accelerator.device, dtype=weight_dtype)
-            # Convert images to latent space
+            # Convert images to latent space, latents.shape=[2, 4, 64, 64]
             latents = vae.encode(hr_batch).latent_dist.sample()
+            
             latents = latents * vae.config.scaling_factor
-
             # Sample noise that we'll add to the latents
             noise = torch.randn_like(latents)
             bsz = latents.shape[0]
@@ -1074,70 +1059,13 @@ for epoch in range(first_epoch, args.num_train_epochs):
             # controlnet_image equals to upsampled lr_batch
             lr_up = F.interpolate(lr_batch, size=(args.resolution, args.resolution), mode="bicubic")
 
-            # make scm_init, mask_init 0, which are used to store the masks
-            scm_hf_init.zero_()
-            scm_lf_init.zero_()
-            mask_init.zero_()
-            scm_batch_hf = []
-            scm_batch_lf = []
-            seg_labels = []
-            seg_masks = []
+            cat_hf_emb = batch["cat_hf_emb"]
+            cat_lf_emb = batch["cat_lf_emb"]
+            hf_lf_attention_mask = batch["hf_lf_attention_mask"]
 
-            # idx是遍历当前batch，cur是遍历所有的实例
-            for idx, panoptic_seg in enumerate(panoptic_seg_batch):
-                scm_hf = scm_hf_init[idx].to(accelerator.device, dtype=weight_dtype)
-                scm_lf = scm_lf_init[idx].to(accelerator.device, dtype=weight_dtype)
-                m = mask_init[idx]
-                assert torch.all(scm_hf == 0)
-                assert torch.all(scm_lf == 0)
-                assert torch.all(m == 0)
+            scm_batch_hf = None
+            scm_batch_lf = None
 
-                seg_label = ''
-                for i in torch.unique(panoptic_seg):
-                    cur = int(i)
-
-                    color = seg_emb_dict_batch[idx][cur]["color"]
-                    m[0][panoptic_seg == i] = color[0]
-                    m[1][panoptic_seg == i] = color[1]
-                    m[2][panoptic_seg == i] = color[2]
-
-                    dcm_hf_emb = dcm_encoder(seg_emb_dict_batch[idx][cur]["hf_emb"].to(accelerator.device, dtype=weight_dtype))
-                    dcm_lf_emb = dcm_encoder(seg_emb_dict_batch[idx][cur]["lf_emb"].to(accelerator.device, dtype=weight_dtype))
-
-                    scm_hf[panoptic_seg == i] = dcm_hf_emb
-                    scm_lf[panoptic_seg == i] = dcm_lf_emb
-                    now_label = seg_emb_dict_batch[idx][cur]["label"]
-                    seg_label += f"{now_label}, "
-                    
-                    assert not torch.all(scm_hf == 0)
-                    assert not torch.all(scm_lf == 0)
-                    assert not torch.all(m == 0)
-
-                if random.random() < args.null_text_ratio:
-                    seg_label = ''
-
-                seg_labels.append(seg_label[:-2]) # remove the last comma and space, then append to seg_labels
-                scm_batch_hf.append(scm_hf.permute(2, 0, 1).unsqueeze(0))
-                scm_batch_lf.append(scm_lf.permute(2, 0, 1).unsqueeze(0))
-                seg_masks.append(m.unsqueeze(0))
-
-            scm_batch_hf = torch.cat(scm_batch_hf, dim=0).to(accelerator.device, dtype=weight_dtype)
-            scm_batch_lf = torch.cat(scm_batch_lf, dim=0).to(accelerator.device, dtype=weight_dtype)
-            seg_masks = torch.cat(seg_masks, dim=0)
-            seg_masks = (seg_masks / 255.0).to(accelerator.device, dtype=weight_dtype) 
-
-        
-            accelerator.wait_for_everyone()
-
-            # embed the scm_batch as a shared feature of MSFT layers
-            scm_batch_hf = scm_encoder(scm_batch_hf)
-            scm_batch_lf = scm_encoder(scm_batch_lf)
-
-            # # Get the text embedding for conditioning
-            inputs = tokenizer(
-                seg_labels, max_length=tokenizer.model_max_length, padding="max_length", truncation=True, return_tensors="pt"
-            )
-            encoder_hidden_states = text_encoder(inputs.input_ids.to(accelerator.device))[0]
             caption_emb = batch['caption_emb']
             caption_encoder_hidden_states = caption_emb
 
@@ -1146,11 +1074,12 @@ for epoch in range(first_epoch, args.num_train_epochs):
             with torch.no_grad():
                 ram_image = lr_ram.to(accelerator.device, dtype=weight_dtype)
                 ram_encoder_hidden_states = RAM.generate_image_embeds(ram_image)
-
+            # noisy_latents.shape=[B, 4, 64, 64]
             down_block_res_samples, mid_block_res_sample = controlnet(
                 noisy_latents,
                 timesteps,
-                encoder_hidden_states=encoder_hidden_states,
+                hf_encoder_hidden_states=cat_hf_emb,
+                lf_encoder_hidden_states=cat_lf_emb,
                 caption_encoder_hidden_states = caption_encoder_hidden_states,
                 controlnet_cond=lr_up,
                 scm_hf=scm_batch_hf,
@@ -1164,7 +1093,8 @@ for epoch in range(first_epoch, args.num_train_epochs):
             model_pred = unet(
                 noisy_latents,
                 timesteps,
-                encoder_hidden_states=encoder_hidden_states,
+                hf_encoder_hidden_states=cat_hf_emb,
+                lf_encoder_hidden_states=cat_lf_emb,
                 caption_encoder_hidden_states=caption_encoder_hidden_states,
                 down_block_additional_residuals=[
                     sample.to(dtype=weight_dtype) for sample in down_block_res_samples

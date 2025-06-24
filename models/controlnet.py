@@ -137,10 +137,10 @@ class ControlNetModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
             [`~models.unet_2d_blocks.CrossAttnDownBlock2D`], [`~models.unet_2d_blocks.CrossAttnUpBlock2D`],
             [`~models.unet_2d_blocks.UNetMidBlock2DCrossAttn`].
         encoder_hid_dim (`int`, *optional*, defaults to None):
-            If `encoder_hid_dim_type` is defined, `encoder_hidden_states` will be projected from `encoder_hid_dim`
+            If `encoder_hid_dim_type` is defined, `hf_encoder_hidden_states` will be projected from `encoder_hid_dim`
             dimension to `cross_attention_dim`.
         encoder_hid_dim_type (`str`, *optional*, defaults to `None`):
-            If given, the `encoder_hidden_states` and potentially other embeddings are down-projected to text
+            If given, the `hf_encoder_hidden_states` and potentially other embeddings are down-projected to text
             embeddings of dimension `cross_attention` according to `encoder_hid_dim_type`.
         attention_head_dim (`Union[int, Tuple[int]]`, defaults to 8):
             The dimension of the attention heads.
@@ -648,7 +648,8 @@ class ControlNetModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
         self,
         sample: torch.FloatTensor,
         timestep: Union[torch.Tensor, float, int],
-        encoder_hidden_states: torch.Tensor,
+        hf_encoder_hidden_states: torch.Tensor,
+        lf_encoder_hidden_states: torch.Tensor,
         caption_encoder_hidden_states: torch.Tensor,
         controlnet_cond: torch.FloatTensor,
         conditioning_scale: float = 1.0,
@@ -673,7 +674,7 @@ class ControlNetModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
                 The noisy input tensor.
             timestep (`Union[torch.Tensor, float, int]`):
                 The number of timesteps to denoise an input.
-            encoder_hidden_states (`torch.Tensor`):
+            hf_encoder_hidden_states (`torch.Tensor`):
                 The encoder hidden states.
             controlnet_cond (`torch.FloatTensor`):
                 The conditional input tensor of shape `(batch_size, sequence_length, hidden_size)`.
@@ -753,7 +754,7 @@ class ControlNetModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
 
         if self.config.addition_embed_type is not None:
             if self.config.addition_embed_type == "text":
-                aug_emb = self.add_embedding(encoder_hidden_states)
+                aug_emb = self.add_embedding(hf_encoder_hidden_states)
 
             elif self.config.addition_embed_type == "text_time":
                 if "text_embeds" not in added_cond_kwargs:
@@ -773,6 +774,7 @@ class ControlNetModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
                 add_embeds = add_embeds.to(emb.dtype)
                 aug_emb = self.add_embedding(add_embeds)
 
+        # aug_emb是None，其实不用管
         emb = emb + aug_emb if aug_emb is not None else emb
 
         # 2. pre-process
@@ -787,7 +789,8 @@ class ControlNetModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
                 sample, res_samples = downsample_block(
                     hidden_states=sample,
                     temb=emb,
-                    encoder_hidden_states=encoder_hidden_states,
+                    hf_encoder_hidden_states=hf_encoder_hidden_states,
+                    lf_encoder_hidden_states=lf_encoder_hidden_states,
                     caption_encoder_hidden_states=caption_encoder_hidden_states,
                     attention_mask=attention_mask,
                     cross_attention_kwargs=cross_attention_kwargs,
@@ -806,7 +809,8 @@ class ControlNetModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
             sample = self.mid_block(
                 sample,
                 emb,
-                encoder_hidden_states=encoder_hidden_states,
+                hf_encoder_hidden_states=hf_encoder_hidden_states,
+                lf_encoder_hidden_states=lf_encoder_hidden_states,
                 caption_encoder_hidden_states=caption_encoder_hidden_states,
                 attention_mask=attention_mask,
                 cross_attention_kwargs=cross_attention_kwargs,

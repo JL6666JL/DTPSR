@@ -57,16 +57,6 @@ from transformers import AutoProcessor, Blip2ForConditionalGeneration
 import pickle
 import json
 
-cfg = get_cfg()
-add_deeplab_config(cfg)
-add_maskformer2_config(cfg)
-cfg.merge_from_file("/data1/jianglei/work/HoliSDiP/preset/models/mask2former/semantic-segmentation/config/ade20k-maskformer2_swin_large_IN21k_384_bs16_160k_res640.yaml")
-cfg.MODEL.WEIGHTS = "/data1/jianglei/work/HoliSDiP/preset/models/mask2former/semantic-segmentation/model_final_6b4a3a.pkl"
-cfg.MODEL.MASK_FORMER.TEST.SEMANTIC_ON = True
-predictor = DefaultPredictor(cfg)
-
-ADE20k_COLORS = [k["color"] for k in ADE20K_150_CATEGORIES]
-ADE20k_NAMES = [k["name"] for k in ADE20K_150_CATEGORIES]
 ######################################################
 
 logger = get_logger(__name__, log_level="INFO")
@@ -188,17 +178,90 @@ def load_seg_description_emb(args,image_path):
         local_descriptions = pickle.load(f)
     return local_descriptions["panoptic_seg"], local_descriptions["seg_emb_dict"]
 
-def load_description(args, image_path):
-    print(image_path)
-    input("11")
+def get_joint_desemb(panoptic_seg, seg_emb_dict, max_tensors):
+    arr_flat = panoptic_seg.flatten()
+    unique, counts = np.unique(arr_flat, return_counts=True)
+    sorted_indices = np.argsort(-counts)  # 负号表示降序
+    sorted_numbers = unique[sorted_indices]
+
+    selected_indices = sorted_numbers[:max_tensors]
+
+    selected_hf_emb = [seg_emb_dict[i]["hf_emb"].view(-1,1024) for i in selected_indices ]
+    selected_lf_emb = [seg_emb_dict[i]["lf_emb"].view(-1,1024) for i in selected_indices ]
+
+    # 计算需要填充的零 tensor 数量
+    num_padding = max_tensors - len(selected_hf_emb)
+    # 补零
+    if num_padding > 0:
+        device = seg_emb_dict[selected_indices[0]]["hf_emb"].device  # 确保和输入 tensor 同设备（CPU/GPU）
+        dtype = seg_emb_dict[selected_indices[0]]["hf_emb"].dtype    # 确保数据类型一致
+        zero_tensor_hf = torch.zeros(77, 1024, device=device, dtype=dtype)
+        zero_tensor_lf = torch.zeros(77, 1024, device=device, dtype=dtype)
+
+        selected_hf_emb.extend([zero_tensor_hf] * num_padding)
+        selected_lf_emb.extend([zero_tensor_lf] * num_padding)
+
+    cat_hf_emb = torch.cat(selected_hf_emb, dim=0).unsqueeze(0)
+    cat_lf_emb = torch.cat(selected_lf_emb, dim=0).unsqueeze(0)
+
+    # print(len(selected_indices), num_padding, valid_mask, cat_hf_emb.shape, cat_lf_emb.shape, hf_lf_attention_mask.shape)
+    return cat_hf_emb, cat_lf_emb
 
 def main(args, enable_xformers_memory_efficient_attention=True,):
     txt_path = os.path.join(args.output_dir, 'prompts')
     os.makedirs(txt_path, exist_ok=True)
 
+
+
     accelerator = Accelerator(
         mixed_precision=args.mixed_precision,
     )
+
+    text_encoder = CLIPTextModel.from_pretrained(args.sd_model_path, subfolder="text_encoder")
+    tokenizer = CLIPTokenizer.from_pretrained(args.sd_model_path, subfolder="tokenizer")
+    text_encoder.to(accelerator.device, dtype=torch.float16)
+
+    negative_prompt = args.negative_prompt
+    uncond_tokens = [negative_prompt]
+    uncond_input = tokenizer(
+        uncond_tokens,
+        padding="max_length",
+        max_length=77,
+        truncation=True,
+        return_tensors="pt",
+    )
+    negative_prompt_embeds = text_encoder(
+        uncond_input.input_ids.to(accelerator.device),
+        attention_mask=None,
+    )[0]
+
+    hf_negative_prompt = args.hf_negative_prompt
+    hf_uncond_tokens = [hf_negative_prompt]
+    hf_uncond_input = tokenizer(
+        hf_uncond_tokens,
+        padding="max_length",
+        max_length=77,
+        truncation=True,
+        return_tensors="pt",
+    )
+    hf_negative_prompt_embeds = text_encoder(
+        hf_uncond_input.input_ids.to(accelerator.device),
+        attention_mask=None,
+    )[0]
+
+    lf_negative_prompt = args.lf_negative_prompt
+    lf_uncond_tokens = [lf_negative_prompt]
+    lf_uncond_input = tokenizer(
+        lf_uncond_tokens,
+        padding="max_length",
+        max_length=77,
+        truncation=True,
+        return_tensors="pt",
+    )
+    lf_negative_prompt_embeds = text_encoder(
+        lf_uncond_input.input_ids.to(accelerator.device),
+        attention_mask=None,
+    )[0]
 
     # If passed along, set the training seed now.
     if args.seed is not None:
@@ -219,31 +282,6 @@ def main(args, enable_xformers_memory_efficient_attention=True,):
     pipeline = load_pipeline(args, accelerator, enable_xformers_memory_efficient_attention)
     model = load_tag_model(args, accelerator.device)
 
-    # load scm_encoder model
-    scm_dim = 1024
-    scm_encoder = SCM_encoder(input_nc=scm_dim).to(accelerator.device)
-    scm_encoder.load_state_dict(torch.load(os.path.join(args.holisdip_model_path, "scm_encoder.pth")))
-    scm_encoder.eval()
-
-    dcm_encoder = DCM_encoder().to(accelerator.device)
-    dcm_encoder.load_state_dict(torch.load(os.path.join(args.holisdip_model_path, "dcm_encoder.pth")))
-    dcm_encoder.eval()
-
-    # build the CLIP embedding of ADE20k categories
-    # max_length = 1 # the max length of the clip embedding of the category
-    # scm_dim = max_length*1024
-    # scm_list = torch.zeros(len(ADE20k_NAMES), scm_dim, device=accelerator.device)
-    # for i, name in enumerate(ADE20k_NAMES):
-    #     class_token = pipeline.tokenizer(name, return_tensors="pt")
-    #     class_token.input_ids = class_token.input_ids[0][1].unsqueeze(0) # only take the first token
-
-    #     scm_list[i] = pipeline.text_encoder(class_token.input_ids.to(accelerator.device))[0].squeeze(0).view(-1)
-    # print(f"Finished building CLIP embeddings for ADE20k categories")
-
-    # caption_processor = AutoProcessor.from_pretrained("Salesforce/blip2-opt-2.7b")
-    # caption_model = Blip2ForConditionalGeneration.from_pretrained("Salesforce/blip2-opt-2.7b")
-    # caption_model.to(accelerator.device, dtype=torch.float16)
- 
     if accelerator.is_main_process:
         generator = torch.Generator(device=accelerator.device)
         if args.seed is not None:
@@ -270,29 +308,13 @@ def main(args, enable_xformers_memory_efficient_attention=True,):
             validation_image = Image.open(image_name).convert("RGB")
 
             panoptic_seg, seg_emb_dict = load_seg_description_emb(args,image_name)
+            cat_hf_emb, cat_lf_emb = get_joint_desemb(panoptic_seg, seg_emb_dict, 5)
 
             ph, pw = panoptic_seg.shape
             panoptic_seg = cv2.resize(panoptic_seg, (ph*4,pw*4), interpolation=cv2.INTER_NEAREST)
 
             description = all_des[image_name]
 
-            print(description)
-
-            # prompt = "Question: Please describe the contents in the photo in details. Answer:"
-            # caption_inputs = caption_processor(validation_image, text=prompt, return_tensors="pt").to(accelerator.device, torch.float16)
-            # generated_ids = caption_model.generate(**caption_inputs, max_new_tokens=20)
-            # generated_text = caption_processor.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
-            # caption = generated_text.lower().replace('.', ',').rstrip(',')
-            # caption = "this is a test text."
-            description_token = pipeline.tokenizer(
-                description,
-                return_tensors="pt",
-                padding="max_length",
-                max_length=pipeline.tokenizer.model_max_length,
-                truncation=True                ).to(accelerator.device)
-            description_embeddings = pipeline.text_encoder(input_ids=description_token.input_ids, 
-                                                       attention_mask=description_token.attention_mask).last_hidden_state
-            
             _, ram_encoder_hidden_states = get_validation_prompt(args, validation_image, model)
 
             ori_width, ori_height = validation_image.size
@@ -317,55 +339,18 @@ def main(args, enable_xformers_memory_efficient_attention=True,):
             # resize to 512x512
             validation_image_cv2 = cv2.resize(validation_image_cv2, (args.process_size, args.process_size))
             validation_prompt = ""
-            
-            # get mask from Mask2Former and save it along with the image
-            with torch.no_grad():
-                outputs = predictor(validation_image_cv2)
-                label = outputs["sem_seg"].argmax(dim=0).to("cpu")
-                v = Visualizer(validation_image_cv2[:, :, ::-1], ade20k_metadata, scale=1.2, instance_mode=ColorMode.IMAGE_BW)
-                semantic_result = v.draw_sem_seg(label).get_image()
-                semantic_result = cv2.cvtColor(semantic_result, cv2.COLOR_BGR2RGB)
-                semantic_result = Image.fromarray(semantic_result)
-                semantic_result.save(f'{args.output_dir}/masks_meta/{os.path.basename(image_name)}')
 
-                scm_hf = torch.zeros((args.process_size, args.process_size, scm_dim)).to(accelerator.device)
-                scm_lf = torch.zeros((args.process_size, args.process_size, scm_dim)).to(accelerator.device)
-                # seg_mask = torch.zeros((3, args.process_size, args.process_size))
-
-                panoptic_seg = torch.from_numpy(panoptic_seg)
-                for i in torch.unique(panoptic_seg):
-                    cur = int(i)
-                    # color = seg_emb_dict[cur]["color"]
-                    # seg_mask[0][panoptic_seg == i] = color[0]
-                    # seg_mask[1][panoptic_seg == i] = color[1]
-                    # seg_mask[2][panoptic_seg == i] = color[2]
-
-                    dcm_hf_emb = dcm_encoder(seg_emb_dict[cur]["hf_emb"]).to(accelerator.device)
-                    dcm_lf_emb = dcm_encoder(seg_emb_dict[cur]["lf_emb"]).to(accelerator.device)
-                    
-                    scm_hf[panoptic_seg == i] =dcm_hf_emb
-                    scm_lf[panoptic_seg == i] =dcm_lf_emb
-                    now_label = seg_emb_dict[cur]["label"]
-                    validation_prompt += f"{now_label}, "
-
-                scm_hf = scm_hf.permute(2, 0, 1).unsqueeze(0)
-                scm_lf = scm_lf.permute(2, 0, 1).unsqueeze(0)
-
-                scm_hf = scm_encoder(scm_hf).to(accelerator.device)
-                scm_lf = scm_encoder(scm_lf).to(accelerator.device)
+            scm_hf = None
+            scm_lf = None
                 
-                # seg_mask = seg_mask.permute(1, 2, 0).numpy().astype(np.uint8)
-                # seg_mask = Image.fromarray(seg_mask)
-                # seg_mask.save(f'{args.output_dir}/masks/{os.path.basename(image_name)}')
-                # seg_mask = tensor_transforms(seg_mask).unsqueeze(0).to(accelerator.device)
+            # if args.added_prompt == "":
+            #     validation_prompt = validation_prompt[:-2] # remove the last comma and space
+            # else:
+            #     validation_prompt = validation_prompt
 
-            if args.added_prompt == "":
-                validation_prompt = validation_prompt[:-2] # remove the last comma and space
-            else:
-                validation_prompt = validation_prompt
+            validation_prompt = description     #使用全局description代替原本的label组成的prompt
             validation_prompt += args.added_prompt # clean, extremely detailed, best quality, sharp, clean
             negative_prompt = args.negative_prompt #dirty, messy, low quality, frames, deformed, 
-
 
             if args.save_prompts:
                 txt_save_path = f"{txt_path}/{os.path.basename(image_name).split('.')[0]}.txt"
@@ -376,8 +361,8 @@ def main(args, enable_xformers_memory_efficient_attention=True,):
 
             with torch.autocast("cuda"):
                 image = pipeline(
-                        validation_prompt, validation_image, caption_embeds=description_embeddings, scm_hf=scm_hf, scm_lf=scm_lf, num_inference_steps=args.num_inference_steps, generator=generator, height=height, width=width,
-                        guidance_scale=args.guidance_scale, negative_prompt=negative_prompt, conditioning_scale=args.conditioning_scale,
+                        validation_prompt, validation_image, scm_hf=scm_hf, scm_lf=scm_lf, cat_hf_emb=cat_hf_emb, cat_lf_emb=cat_lf_emb, num_inference_steps=args.num_inference_steps, generator=generator, height=height, width=width,
+                        guidance_scale=args.guidance_scale, negative_prompt=negative_prompt, negative_prompt_embeds=negative_prompt_embeds, hf_negative_prompt_embeds=hf_negative_prompt_embeds, lf_negative_prompt_embeds=lf_negative_prompt_embeds, conditioning_scale=args.conditioning_scale,
                         start_point=args.start_point, ram_encoder_hidden_states=ram_encoder_hidden_states,
                         latent_tiled_size=args.latent_tiled_size, latent_tiled_overlap=args.latent_tiled_overlap,
                         args=args,
@@ -406,11 +391,13 @@ if __name__ == "__main__":
     parser.add_argument("--sd_model_path", type=str, default='preset/models/stable-diffusion-2-base')
     parser.add_argument("--prompt", type=str, default="") # user can add self-prompt to improve the results
     parser.add_argument("--added_prompt", type=str, default="")
-    parser.add_argument("--negative_prompt", type=str, default="")
+    parser.add_argument("--negative_prompt", type=str, default="blurry, dotted, noise, raster lines, unclear, lowres, over-smoothed")
+    parser.add_argument("--hf_negative_prompt", type=str, default="fake texture, excessive details, harsh edges, ringing artifacts, noise, aliasing, sharpening artifacts, hallucinated texture, jaggies")
+    parser.add_argument("--lf_negative_prompt", type=str, default="blurry, misshaped object, bad anatomy, inconsistent lighting, unnatural shading, distorted global structure, low frequency banding, uneven illumination")
     parser.add_argument("--image_path", type=str, default=None)
     parser.add_argument("--output_dir", type=str, default=None)
     parser.add_argument("--mixed_precision", type=str, default="fp16") # no/fp16/bf16
-    parser.add_argument("--guidance_scale", type=float, default=1.0)
+    parser.add_argument("--guidance_scale", type=float, default=4.5)
     parser.add_argument("--conditioning_scale", type=float, default=1.0)
     parser.add_argument("--blending_alpha", type=float, default=1.0)
     parser.add_argument("--num_inference_steps", type=int, default=50)

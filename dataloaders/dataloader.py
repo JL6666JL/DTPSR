@@ -70,7 +70,6 @@ class DataLoader(Dataset):
         # self.seg_description_emb_path = "/data2/jianglei/dataset/HoliSDiP/local_descriptions"
         self.seg_description_emb_path = opt['seg_description_emb_path']
 
-
     def load_caption_embedding(self,image_path):
         directory, filename = os.path.split(image_path)
         filename_without_ext = os.path.splitext(filename)[0]
@@ -122,37 +121,46 @@ class DataLoader(Dataset):
 
         return image_tensor, panoptic_tensor
 
+    def get_joint_desemb(self, panoptic_seg, seg_emb_dict, max_tensors):
+        arr_flat = panoptic_seg.flatten()
+        unique, counts = np.unique(arr_flat, return_counts=True)
+        sorted_indices = np.argsort(-counts)  # 负号表示降序
+        sorted_numbers = unique[sorted_indices]
+
+        selected_indices = sorted_numbers[:max_tensors]
+
+        selected_hf_emb = [seg_emb_dict[i]["hf_emb"].view(-1,1024) for i in selected_indices ]
+        selected_lf_emb = [seg_emb_dict[i]["lf_emb"].view(-1,1024) for i in selected_indices ]
+
+        # 计算需要填充的零 tensor 数量
+        num_padding = max_tensors - len(selected_hf_emb)
+        # 补零
+        if num_padding > 0:
+            device = seg_emb_dict[selected_indices[0]]["hf_emb"].device  # 确保和输入 tensor 同设备（CPU/GPU）
+            dtype = seg_emb_dict[selected_indices[0]]["hf_emb"].dtype    # 确保数据类型一致
+            zero_tensor_hf = torch.zeros(77, 1024, device=device, dtype=dtype)
+            zero_tensor_lf = torch.zeros(77, 1024, device=device, dtype=dtype)
+
+            selected_hf_emb.extend([zero_tensor_hf] * num_padding)
+            selected_lf_emb.extend([zero_tensor_lf] * num_padding)
+
+        cat_hf_emb = torch.cat(selected_hf_emb, dim=0)
+        cat_lf_emb = torch.cat(selected_lf_emb, dim=0)
+
+        # 没用上这个mask，因为会报错，似乎是和高效的attention冲突了
+        valid_mask = [True] * len(selected_indices) + [False] * num_padding
+        hf_lf_attention_mask = torch.tensor(valid_mask, device=cat_hf_emb.device).repeat_interleave(77)
+
+        # print(len(selected_indices), num_padding, valid_mask, cat_hf_emb.shape, cat_lf_emb.shape, hf_lf_attention_mask.shape)
+        return cat_hf_emb, cat_lf_emb, hf_lf_attention_mask
+
     def __getitem__(self, index):
         image = Image.open(self.image_list[index]).convert('RGB')
         panoptic_seg, seg_emb_dict = self.load_seg_description_emb(self.image_list[index])
+
         # image = self.img_preproc(image)
         image, panoptic_seg = self.synchronized_crop_to_tensor(image, panoptic_seg, self.fix_size)
-
-        # # 检验是否裁剪的是同样的位置
-        # # 定义颜色映射（0-10 分别对应 RGB 颜色）
-        # color_map = {
-        #     0: [0, 0, 0],       # 黑色
-        #     1: [255, 0, 0],     # 红色
-        #     2: [0, 0, 255],     # 蓝色
-        #     3: [0, 255, 0],     # 绿色
-        #     4: [255, 255, 0],   # 黄色
-        #     5: [128, 0, 128],   # 紫色
-        #     6: [255, 165, 0],   # 橙色
-        #     7: [0, 255, 255],   # 青色
-        #     8: [255, 0, 255],   # 品红
-        #     9: [0, 255, 0],     # 绿色（可自定义）
-        #     10: [255, 255, 255] # 白色
-        # }
-        # h,w = panoptic_seg.shape
-        # rgb_image = np.zeros((h, w, 3), dtype=np.uint8)
-        # for val in color_map:
-        #     rgb_image[panoptic_seg == val] = color_map[val]
-        # # print(image.shape,panoptic_seg.shape)
-        # # print(panoptic_seg)
-        # cv2.imwrite("crop_mask.png", cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR))
-        # save_image(image,"crop_image.png")
-        # input("11")
-        
+       
         image_caption_emb = self.load_caption_embedding(self.image_list[index])
     
         # ------------------------ Generate kernels (used in the first degradation) ------------------------ #
@@ -215,10 +223,13 @@ class DataLoader(Dataset):
         kernel = torch.FloatTensor(kernel)
         kernel2 = torch.FloatTensor(kernel2)
 
+        cat_hf_emb, cat_lf_emb, hf_lf_attention_mask = self.get_joint_desemb(panoptic_seg,seg_emb_dict,5)
+
         # self.image_list里面存储的好像是HR图像，为什么被叫做lq_path。不过这个参数后面似乎也没用上
         return_d = {'gt': image, 'kernel1': kernel, 'kernel2': kernel2, 'sinc_kernel': sinc_kernel, 
                     'lq_path': self.image_list[index], 'caption_emb' : image_caption_emb,
-                    "panoptic_seg": panoptic_seg, "seg_emb_dict": seg_emb_dict}
+                    "panoptic_seg": panoptic_seg, "seg_emb_dict": seg_emb_dict, 
+                    "cat_hf_emb": cat_hf_emb, "cat_lf_emb": cat_lf_emb, "hf_lf_attention_mask": hf_lf_attention_mask}
         return return_d
         
 
