@@ -11,9 +11,9 @@ TOTAL_IMAGES=3000
 IMAGES_PER_PROCESS=375
 
 # ==== 遍历多个 checkpoint ====
-for STEP in $(seq 10000 20000 10000); do
+for STEP in $(seq 10000 10000 90000); do
     echo "======== 开始处理 checkpoint-$STEP ========"
-    OUTPUT_DIR="/data2/jianglei/HoliSDiP/results/test_former_$STEP"
+    OUTPUT_DIR="/data2/jianglei/HoliSDiP/results/ca_hf_lf_fix_CFG_hflfneg_$STEP"
     for item in "${datasets[@]}"; do
         NOW_IMAGE_PATH="$IMAGE_PATH/$item/lq"
         NOW_HFLF_DES_PATH="$HOLIDATASET/$item/lfhf_local_descriptions"
@@ -34,13 +34,13 @@ for STEP in $(seq 10000 20000 10000); do
 
                 # 分配 GPU
                 if [ $i -lt 2 ]; then
-                    GPU="0"
+                    GPU="4"
                 elif [ $i -lt 4 ]; then
-                    GPU="1"
+                    GPU="5"
                 elif [ $i -lt 6 ]; then
-                    GPU="2"
+                    GPU="6"
                 else
-                    GPU="3"
+                    GPU="7"
                 fi
 
                 # echo "启动进程 $((i+1)): checkpoint-$STEP, 图片 $START-$END (GPU $GPU)"
@@ -55,7 +55,7 @@ for STEP in $(seq 10000 20000 10000); do
                     --end_index "$END" &
             done
         elif [[ "$item" == "DrealSRVal_crop128" ]]; then
-            GPU="1"
+            GPU="4"
             CUDA_VISIBLE_DEVICES=$GPU python test.py \
                 --holisdip_model_path "$HOLISDIP_MODEL" \
                 --image_path "$NOW_IMAGE_PATH" \
@@ -64,7 +64,7 @@ for STEP in $(seq 10000 20000 10000); do
                 --local_des_pkl_path "$NOW_HFLF_DES_PATH" \
                 --des_path "$NOW_DES_PATH" &
         else
-            GPU="2"
+            GPU="5"
             CUDA_VISIBLE_DEVICES=$GPU python test.py \
                 --holisdip_model_path "$HOLISDIP_MODEL" \
                 --image_path "$NOW_IMAGE_PATH" \
@@ -76,9 +76,9 @@ for STEP in $(seq 10000 20000 10000); do
     done
     # 等待所有进程完成再评估
     wait
-    echo "✅ checkpoint-$STEP 推理完成，开始评估..."
+    # echo "✅ checkpoint-$STEP 推理完成，开始评估..."
 
-    # CUDA_VISIBLE_DEVICES=0 python evaluate.py \
+    # CUDA_VISIBLE_DEVICES=2 python evaluate.py \
     #     --sr_dir="$OUTPUT_DIR" \
     #     --steps="$STEP"
 
@@ -92,7 +92,6 @@ for STEP in $(seq 10000 20000 10000); do
     # else
     #     echo "❗️ 检测到 exit code 1，保留输出目录：$OUTPUT_DIR"
     # fi
-
 
     echo "======== checkpoint-$STEP 处理完成 ========"
     echo

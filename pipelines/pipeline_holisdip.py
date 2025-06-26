@@ -796,8 +796,6 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
         self,
         prompt: Union[str, List[str]] = None,
         image: Union[torch.FloatTensor, PIL.Image.Image, List[torch.FloatTensor], List[PIL.Image.Image]] = None,
-        scm_hf: Union[torch.FloatTensor, PIL.Image.Image, List[torch.FloatTensor], List[PIL.Image.Image]] = None,
-        scm_lf: Union[torch.FloatTensor, PIL.Image.Image, List[torch.FloatTensor], List[PIL.Image.Image]] = None,
         cat_hf_emb: Optional[torch.FloatTensor] = None,
         cat_lf_emb: Optional[torch.FloatTensor] = None,
         height: Optional[int] = None,
@@ -1036,7 +1034,6 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
                     print(f'pass {t} steps.')
                     continue
                 
-                lf_ratio = t / start_steps
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
@@ -1064,9 +1061,6 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
                         guess_mode=guess_mode,
                         return_dict=False,
                         image_encoder_hidden_states=ram_encoder_hidden_states,
-                        scm_hf=scm_hf,
-                        scm_lf=scm_lf,
-                        lf_ratio = lf_ratio,
                     )
 
 
@@ -1089,9 +1083,6 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
                         mid_block_additional_residual=mid_block_res_sample,
                         return_dict=False,
                         image_encoder_hidden_states = ram_encoder_hidden_states,
-                        scm_hf=scm_hf,
-                        scm_lf=scm_lf,
-                        lf_ratio = lf_ratio,
                     )[0]
                 else:
                     tile_weights = self._gaussian_weights(tile_size, tile_size, 1)
@@ -1157,9 +1148,6 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
                                     guess_mode=guess_mode,
                                     return_dict=False,
                                     image_encoder_hidden_states = ram_encoder_hidden_states,
-                                    scm_hf=scm_hf,
-                                    scm_lf=scm_lf,
-                                    lf_ratio = lf_ratio,
                                 )
 
                                 if guess_mode and do_classifier_free_guidance:
@@ -1181,9 +1169,6 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
                                     mid_block_additional_residual=mid_block_res_sample,
                                     return_dict=False,
                                     image_encoder_hidden_states = ram_encoder_hidden_states,
-                                    scm_hf=scm_hf,
-                                    scm_lf=scm_lf,
-                                    lf_ratio = lf_ratio,
                                 )[0]
 
                                 #for sample_i in range(model_out.size(0)):

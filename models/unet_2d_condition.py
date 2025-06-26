@@ -207,9 +207,6 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
         cross_attention_norm: Optional[str] = None,
         addition_embed_type_num_heads=64,
         use_image_cross_attention=False,
-        use_msft_down=False,
-        use_msft_mid=False,
-        use_msft_up=False,
     ):
         super().__init__()
 
@@ -460,9 +457,6 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                 cross_attention_norm=cross_attention_norm,
                 attention_head_dim=attention_head_dim[i] if attention_head_dim[i] is not None else output_channel,
                 use_image_cross_attention=use_image_cross_attention,
-                use_msft_down=use_msft_down,
-                use_msft_mid=use_msft_mid,
-                use_msft_up=use_msft_up,
             )
             self.down_blocks.append(down_block)
         
@@ -484,9 +478,6 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                 upcast_attention=upcast_attention,
                 attention_type=attention_type,
                 use_image_cross_attention=use_image_cross_attention,
-                use_msft_down=use_msft_down,
-                use_msft_mid=use_msft_mid,
-                use_msft_up=use_msft_up,
             )
         elif mid_block_type == "UNetMidBlock2DSimpleCrossAttn":
             self.mid_block = UNetMidBlock2DSimpleCrossAttn(
@@ -559,9 +550,6 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                 cross_attention_norm=cross_attention_norm,
                 attention_head_dim=attention_head_dim[i] if attention_head_dim[i] is not None else output_channel,
                 use_image_cross_attention=use_image_cross_attention,
-                use_msft_down=use_msft_down,
-                use_msft_mid=use_msft_mid,
-                use_msft_up=use_msft_up,
             )
             self.up_blocks.append(up_block)
             prev_output_channel = output_channel
@@ -741,9 +729,6 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
         encoder_attention_mask: Optional[torch.Tensor] = None,
         return_dict: bool = True,
         image_encoder_hidden_states: torch.Tensor = None,
-        scm_hf: torch.Tensor = None, 
-        scm_lf: torch.Tensor = None, 
-        lf_ratio: torch.Tensor = None, 
     ) -> Union[UNet2DConditionOutput, Tuple]:
         r"""
         The [`UNet2DConditionModel`] forward method.
@@ -965,9 +950,6 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                     cross_attention_kwargs=cross_attention_kwargs,
                     encoder_attention_mask=encoder_attention_mask,
                     image_encoder_hidden_states=image_encoder_hidden_states,
-                    scm_hf=scm_hf,
-                    scm_lf=scm_lf,
-                    lf_ratio=lf_ratio,
                     **additional_residuals,
                 )
             else:
@@ -1001,9 +983,6 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                 cross_attention_kwargs=cross_attention_kwargs,
                 encoder_attention_mask=encoder_attention_mask,
                 image_encoder_hidden_states=image_encoder_hidden_states,
-                scm_hf=scm_hf,
-                scm_lf=scm_lf,
-                lf_ratio=lf_ratio,
             )
             # To support T2I-Adapter-XL
             if (
@@ -1041,9 +1020,6 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
                     attention_mask=attention_mask,
                     encoder_attention_mask=encoder_attention_mask,
                     image_encoder_hidden_states=image_encoder_hidden_states,
-                    scm_hf=scm_hf,
-                    scm_lf=scm_lf,
-                    lf_ratio=lf_ratio,
                 )
             else:
                 sample = upsample_block(
@@ -1062,7 +1038,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
         return UNet2DConditionOutput(sample=sample)
 
     @classmethod
-    def from_pretrained_orig(cls, pretrained_model_path, seesr_model_path, subfolder=None, use_image_cross_attention=False, use_msft_down=False, use_msft_mid=False, use_msft_up=False, **kwargs):
+    def from_pretrained_orig(cls, pretrained_model_path, seesr_model_path, subfolder=None, use_image_cross_attention=False, **kwargs):
         if subfolder is not None:
             pretrained_model_path = os.path.join(pretrained_model_path, subfolder)
             seesr_model_path = os.path.join(seesr_model_path, subfolder)
@@ -1074,9 +1050,6 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
             config = json.load(f)
 
         config['use_image_cross_attention'] = use_image_cross_attention
-        config['use_msft_down'] = use_msft_down
-        config['use_msft_mid'] = use_msft_mid
-        config['use_msft_up'] = use_msft_up
 
         from diffusers.utils import WEIGHTS_NAME 
         from diffusers.utils import SAFETENSORS_WEIGHTS_NAME
@@ -1106,20 +1079,6 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
            if 'image_attentions' in k:
                state_dict.update({k: v})
 
-        # do the same thing for msft_down, msft_mid, msft_up
-        if use_msft_down:
-            for k, v in state_dict_seesr.items():
-                if 'msft_down' in k:
-                    state_dict.update({k: v})
-        if use_msft_mid:
-            for k, v in state_dict_seesr.items():
-                if 'msft_mid' in k:
-                    state_dict.update({k: v})
-        if use_msft_up:
-            for k, v in state_dict_seesr.items():
-                if 'msft_up' in k:
-                    state_dict.update({k: v})
-        
         model.load_state_dict(state_dict, strict=False)
 
         return model

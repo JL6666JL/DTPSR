@@ -209,9 +209,6 @@ class ControlNetModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
         global_pool_conditions: bool = False,
         addition_embed_type_num_heads=64,
         use_image_cross_attention=False,
-        use_msft_down=False,
-        use_msft_mid=False,
-        use_msft_up=False,
     ):
         super().__init__()
         
@@ -387,9 +384,6 @@ class ControlNetModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
                 upcast_attention=upcast_attention,
                 resnet_time_scale_shift=resnet_time_scale_shift,
                 use_image_cross_attention=use_image_cross_attention,
-                use_msft_down=use_msft_down,
-                use_msft_mid=use_msft_mid,
-                use_msft_up=use_msft_up,
             )
             self.down_blocks.append(down_block)
 
@@ -424,9 +418,6 @@ class ControlNetModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
             use_linear_projection=use_linear_projection,
             upcast_attention=upcast_attention,
             use_image_cross_attention=use_image_cross_attention,
-            use_msft_down=use_msft_down,
-            use_msft_mid=use_msft_mid,
-            use_msft_up=use_msft_up,
         )
 
     @classmethod
@@ -437,9 +428,6 @@ class ControlNetModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
         conditioning_embedding_out_channels: Optional[Tuple[int]] = (16, 32, 96, 256),
         load_weights_from_unet: bool = True,
         use_image_cross_attention: bool = False,
-        use_msft_down: bool = False,
-        use_msft_mid: bool = False,
-        use_msft_up: bool = False,
     ):
         r"""
         Instantiate a [`ControlNetModel`] from [`UNet2DConditionModel`].
@@ -489,9 +477,6 @@ class ControlNetModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
             controlnet_conditioning_channel_order=controlnet_conditioning_channel_order,
             conditioning_embedding_out_channels=conditioning_embedding_out_channels,
             use_image_cross_attention=use_image_cross_attention,
-            use_msft_down=use_msft_down,
-            use_msft_mid=use_msft_mid,
-            use_msft_up=use_msft_up,
         )
 
         if load_weights_from_unet:
@@ -661,10 +646,7 @@ class ControlNetModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
         guess_mode: bool = False,
         return_dict: bool = True,
         image_encoder_hidden_states: torch.Tensor = None,
-        scm_hf: torch.Tensor = None,
-        scm_lf: torch.Tensor = None,
         vae_encode_condition_hidden_states: torch.Tensor = None, 
-        lf_ratio : torch.Tensor = None, 
     ) -> Union[ControlNetOutput, Tuple]:
         """
         The [`ControlNetModel`] forward method.
@@ -794,10 +776,7 @@ class ControlNetModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
                     caption_encoder_hidden_states=caption_encoder_hidden_states,
                     attention_mask=attention_mask,
                     cross_attention_kwargs=cross_attention_kwargs,
-                    image_encoder_hidden_states=image_encoder_hidden_states,
-                    scm_hf=scm_hf,
-                    scm_lf=scm_lf,
-                    lf_ratio=lf_ratio,
+                    image_encoder_hidden_states=image_encoder_hidden_states
                 )
             else:
                 sample, res_samples = downsample_block(hidden_states=sample, temb=emb)
@@ -814,10 +793,7 @@ class ControlNetModel(ModelMixin, ConfigMixin, FromOriginalControlnetMixin):
                 caption_encoder_hidden_states=caption_encoder_hidden_states,
                 attention_mask=attention_mask,
                 cross_attention_kwargs=cross_attention_kwargs,
-                image_encoder_hidden_states=image_encoder_hidden_states,
-                scm_hf=scm_hf,
-                scm_lf=scm_lf,
-                lf_ratio=lf_ratio,
+                image_encoder_hidden_states=image_encoder_hidden_states
             )
 
         # 5. Control net blocks

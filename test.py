@@ -212,7 +212,6 @@ def main(args, enable_xformers_memory_efficient_attention=True,):
     os.makedirs(txt_path, exist_ok=True)
 
 
-
     accelerator = Accelerator(
         mixed_precision=args.mixed_precision,
     )
@@ -340,9 +339,7 @@ def main(args, enable_xformers_memory_efficient_attention=True,):
             validation_image_cv2 = cv2.resize(validation_image_cv2, (args.process_size, args.process_size))
             validation_prompt = ""
 
-            scm_hf = None
-            scm_lf = None
-                
+            
             # if args.added_prompt == "":
             #     validation_prompt = validation_prompt[:-2] # remove the last comma and space
             # else:
@@ -361,7 +358,7 @@ def main(args, enable_xformers_memory_efficient_attention=True,):
 
             with torch.autocast("cuda"):
                 image = pipeline(
-                        validation_prompt, validation_image, scm_hf=scm_hf, scm_lf=scm_lf, cat_hf_emb=cat_hf_emb, cat_lf_emb=cat_lf_emb, num_inference_steps=args.num_inference_steps, generator=generator, height=height, width=width,
+                        validation_prompt, validation_image,  cat_hf_emb=cat_hf_emb, cat_lf_emb=cat_lf_emb, num_inference_steps=args.num_inference_steps, generator=generator, height=height, width=width,
                         guidance_scale=args.guidance_scale, negative_prompt=negative_prompt, negative_prompt_embeds=negative_prompt_embeds, hf_negative_prompt_embeds=hf_negative_prompt_embeds, lf_negative_prompt_embeds=lf_negative_prompt_embeds, conditioning_scale=args.conditioning_scale,
                         start_point=args.start_point, ram_encoder_hidden_states=ram_encoder_hidden_states,
                         latent_tiled_size=args.latent_tiled_size, latent_tiled_overlap=args.latent_tiled_overlap,

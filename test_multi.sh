@@ -3,7 +3,7 @@
 # ==== 通用配置 ====
 IMAGE_PATH="/data1/jianglei/work/dataset/HoliSDiP/StableSR_testsets"
 HOLIDATASET="/data2/jianglei/Holidataset"
-CHECKPOINT_DIR="/data2/jianglei/HoliSDiP_exp/experiments/ca_hf_lf_fix"
+CHECKPOINT_DIR="/data2/jianglei/HoliSDiP/experiments/check"
 
 datasets=("DrealSRVal_crop128" "RealSRVal_crop128" "DIV2K_V2_val")
 # 推理相关配置
@@ -11,9 +11,9 @@ TOTAL_IMAGES=3000
 IMAGES_PER_PROCESS=375
 
 # ==== 遍历多个 checkpoint ====
-for STEP in $(seq 100000 20000 180000); do
+for STEP in $(seq 10000 10000 110000); do
     echo "======== 开始处理 checkpoint-$STEP ========"
-    OUTPUT_DIR="/data2/jianglei/HoliSDiP/results/ca_hf_lf_fix_CFG_hflfneg_$STEP"
+    OUTPUT_DIR="/data2/jianglei/HoliSDiP/results/test_$STEP"
     for item in "${datasets[@]}"; do
         NOW_IMAGE_PATH="$IMAGE_PATH/$item/lq"
         NOW_HFLF_DES_PATH="$HOLIDATASET/$item/lfhf_local_descriptions"
@@ -78,12 +78,20 @@ for STEP in $(seq 100000 20000 180000); do
     wait
     echo "✅ checkpoint-$STEP 推理完成，开始评估..."
 
-    CUDA_VISIBLE_DEVICES=2 python evaluate.py \
-        --sr_dir="$OUTPUT_DIR" \
-        --steps="$STEP"
+    # CUDA_VISIBLE_DEVICES=2 python evaluate.py \
+    #     --sr_dir="$OUTPUT_DIR" \
+    #     --steps="$STEP"
 
-    echo "🧹 清理输出目录：$OUTPUT_DIR"
-    rm -rf "$OUTPUT_DIR"
+    # exit_code=$?
+
+    # echo "Exit code: $exit_code"
+
+    # if [ $exit_code -ne 1 ]; then
+    #     echo "🧹 清理输出目录：$OUTPUT_DIR"
+    #     rm -rf "$OUTPUT_DIR"
+    # else
+    #     echo "❗️ 检测到 exit code 1，保留输出目录：$OUTPUT_DIR"
+    # fi
 
     echo "======== checkpoint-$STEP 处理完成 ========"
     echo

@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 from torchvision import transforms
 import argparse
+import sys
 
 def load_image(path):
     """加载图像并转换为 PyTorch 张量 (1, C, H, W)"""
@@ -64,7 +65,6 @@ def main():
         for filename in filenames:
             hr_path = os.path.join(hr_dir, filename)
             sr_path = os.path.join(sr_dir, filename)
-
             if os.path.exists(sr_path):
                 hr_img = load_image(hr_path)
                 sr_img = load_image(sr_path)
@@ -81,6 +81,7 @@ def main():
                     f"MUSIQ: {metrics[3]:.4f}, MANIQA: {metrics[4]:.4f}, CLIPIQA: {metrics[5]:.4f}")
             else:
                 print("SR路径不存在!")
+                sys.exit(1)
 
         avg_metrics = {
             "steps": steps,

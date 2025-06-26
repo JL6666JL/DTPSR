@@ -72,32 +72,6 @@ ram_transforms = transforms.Compose([
             transforms.Resize((384, 384)),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
-
-############## import Mask2Former model ##############
-import detectron2
-from detectron2 import model_zoo
-from detectron2.engine import DefaultPredictor
-from detectron2.config import get_cfg
-from detectron2.utils.visualizer import Visualizer, ColorMode
-from detectron2.data import MetadataCatalog
-from detectron2.projects.deeplab import add_deeplab_config
-from detectron2.checkpoint import DetectionCheckpointer
-
-from Mask2Former.mask2former import add_maskformer2_config
-from Mask2Former.train_net import Trainer
-from utils.seg_class import ADE20K_150_CATEGORIES
-
-# seseg_cfg = get_cfg()
-# add_deeplab_config(seseg_cfg)
-# add_maskformer2_config(seseg_cfg)
-# seseg_cfg.merge_from_file("./preset/models/mask2former/semantic-segmentation/config/ade20k-maskformer2_swin_large_IN21k_384_bs16_160k_res640.yaml")
-# seseg_cfg.MODEL.WEIGHTS = "./preset/models/mask2former/semantic-segmentation/model_final_6b4a3a.pkl"
-# seseg_cfg.MODEL.MASK_FORMER.TEST.SEMANTIC_ON = True
-
-# ADE20k_COLORS = [k["color"] for k in ADE20K_150_CATEGORIES]
-# ADE20k_NAMES = [k["name"] for k in ADE20K_150_CATEGORIES]
-# for i, name in enumerate(ADE20k_NAMES):
-#     ADE20k_NAMES[i] = name.split(",")[0]
 ######################################################
 
 def image_grid(imgs, rows, cols):
@@ -412,7 +386,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--dataloader_num_workers",
         type=int,
-        default=8,
+        default=0,
         help=(
             "Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process."
         ),
@@ -703,13 +677,13 @@ if args.unet_model_name_or_path:
     # resume from self-train
     logger.info("Loading unet weights from self-train")
     unet = UNet2DConditionModel.from_pretrained_orig(
-        args.pretrained_model_name_or_path, args.unet_model_name_or_path, subfolder="unet", revision=args.revision, use_image_cross_attention=True, use_msft_up=True, use_msft_mid=True, use_msft_down=True
+        args.pretrained_model_name_or_path, args.unet_model_name_or_path, subfolder="unet", revision=args.revision, use_image_cross_attention=True, use_msft_up=True
     )
 else:
     # resume from pretrained SD
     logger.info("Loading unet weights from SD")
     unet = UNet2DConditionModel.from_pretrained(
-        args.pretrained_model_name_or_path, subfolder="unet", revision=args.revision, use_image_cross_attention=True, use_msft_up=True, use_msft_mid=True, use_msft_down=True, low_cpu_mem_usage=False
+        args.pretrained_model_name_or_path, subfolder="unet", revision=args.revision, use_image_cross_attention=True, low_cpu_mem_usage=False
     )
     print(f'===== if use ram encoder? {unet.config.use_image_cross_attention}')
 
@@ -721,7 +695,7 @@ if args.controlnet_model_name_or_path:
 
 else:
     logger.info("Initializing controlnet weights from unet")
-    controlnet = ControlNetModel.from_unet(unet, use_image_cross_attention=True, use_msft_up=True, use_msft_mid=True, use_msft_down=True)
+    controlnet = ControlNetModel.from_unet(unet, use_image_cross_attention=True)
     
 
 # `accelerate` 0.16.0 will have better support for customized saving
@@ -945,14 +919,6 @@ if overrode_max_train_steps:
 args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
 
 # build the CLIP embedding of ADE20k categories
-max_length = 1 # the max length of the clip embedding of the category
-scm_dim = max_length*1024
-# scm_list = torch.zeros(len(ADE20k_NAMES), scm_dim, device=accelerator.device)
-# scm_init = torch.zeros((args.train_batch_size, args.resolution, args.resolution, scm_dim)).to(accelerator.device)
-mask_init = torch.zeros((args.train_batch_size, 3, args.resolution, args.resolution)).to(accelerator.device)
-
-scm_encoder = SCM_encoder(input_nc=scm_dim)
-dcm_encoder = DCM_encoder()
 
 # We need to initialize the trackers we use, and also store our configuration.
 # The trackers initializes automatically on the main process.
@@ -1000,12 +966,7 @@ if args.resume_from_checkpoint:
         initial_global_step = 0
     else:
         accelerator.print(f"Resuming from checkpoint {path}")
-
-        logger.info("Loading scm_encoder weights")
-        scm_encoder.load_state_dict(torch.load(os.path.join(args.output_dir, path,"scm_encoder.pth")))
-        logger.info("Loading dcm_encoder weights")
-        dcm_encoder.load_state_dict(torch.load(os.path.join(args.output_dir, path,"dcm_encoder.pth")))
-        
+ 
         accelerator.load_state(os.path.join(args.output_dir, path))
         global_step = int(path.split("-")[1])
 
@@ -1013,9 +974,6 @@ if args.resume_from_checkpoint:
         first_epoch = global_step // num_update_steps_per_epoch
 else:
     initial_global_step = 0
-
-scm_encoder.to(accelerator.device, dtype=weight_dtype)
-dcm_encoder.to(accelerator.device, dtype=weight_dtype)
 
 progress_bar = tqdm(
     range(0, args.max_train_steps),
@@ -1025,8 +983,6 @@ progress_bar = tqdm(
     disable=not accelerator.is_local_main_process,
 )
 
-scm_hf_init = torch.zeros((args.train_batch_size, args.resolution, args.resolution, scm_dim)).to(accelerator.device)
-scm_lf_init = torch.zeros((args.train_batch_size, args.resolution, args.resolution, scm_dim)).to(accelerator.device)
 for epoch in range(first_epoch, args.num_train_epochs):
     for step, batch in enumerate(train_dataloader):
         # batch: {['gt', 'kernel1', 'kernel2', 'sinc_kernel', 'lq_path']}
@@ -1082,11 +1038,8 @@ for epoch in range(first_epoch, args.num_train_epochs):
                 lf_encoder_hidden_states=cat_lf_emb,
                 caption_encoder_hidden_states = caption_encoder_hidden_states,
                 controlnet_cond=lr_up,
-                scm_hf=scm_batch_hf,
-                scm_lf=scm_batch_lf,
                 return_dict=False,
                 image_encoder_hidden_states=ram_encoder_hidden_states,
-                lf_ratio = lf_ratio,
             )
 
             # Predict the noise residual
@@ -1101,9 +1054,6 @@ for epoch in range(first_epoch, args.num_train_epochs):
                 ],
                 mid_block_additional_residual=mid_block_res_sample.to(dtype=weight_dtype),
                 image_encoder_hidden_states=ram_encoder_hidden_states,
-                scm_hf=scm_batch_hf,
-                scm_lf=scm_batch_lf,
-                lf_ratio = lf_ratio,
             ).sample       
 
             # Get the target for loss depending on the prediction type
@@ -1135,12 +1085,6 @@ for epoch in range(first_epoch, args.num_train_epochs):
                     save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
                     accelerator.save_state(save_path)
                     logger.info(f"Saved state to {save_path}")
-
-                    # save scm_encoder
-                    scm_encoder_path = os.path.join(args.output_dir, f"checkpoint-{global_step}", f"scm_encoder.pth")
-                    torch.save(scm_encoder.state_dict(), scm_encoder_path)
-                    dcm_encoder_path = os.path.join(args.output_dir, f"checkpoint-{global_step}", f"dcm_encoder.pth")
-                    torch.save(dcm_encoder.state_dict(), dcm_encoder_path)
 
                 # if args.validation_prompt is not None and global_step % args.validation_steps == 0:
                 if False:
