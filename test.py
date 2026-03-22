@@ -1,7 +1,3 @@
-'''
- * HoliSDiP: Image Super-Resolution via Holistic Semantics and Diffusion Prior 
- * Modified from SeeSR (https://github.com/cswry/SeeSR)
-'''
 import os
 import sys
 sys.path.append(os.getcwd())
@@ -22,7 +18,7 @@ from diffusers.utils import check_min_version
 from diffusers.utils.import_utils import is_xformers_available
 from transformers import CLIPTextModel, CLIPTokenizer, CLIPImageProcessor
 
-from pipelines.pipeline_holisdip import StableDiffusionControlNetPipeline
+from pipelines.pipeline_dtpsr import StableDiffusionControlNetPipeline
 from utils.misc import load_dreambooth_lora
 from utils.wavelet_color_fix import wavelet_color_fix, adain_color_fix
 
@@ -30,7 +26,6 @@ from ram.models.ram_lora import ram
 from ram import inference_ram as inference
 from ram import get_transform
 
-from models.gfm import SCM_encoder, DCM_encoder
 
 from typing import Mapping, Any
 from torchvision import transforms
@@ -46,10 +41,7 @@ from detectron2.config import get_cfg
 from detectron2.utils.visualizer import Visualizer, ColorMode
 from detectron2.data import MetadataCatalog
 from detectron2.projects.deeplab import add_deeplab_config
-ade20k_metadata = MetadataCatalog.get("ade20k_sem_seg_val")
 
-from Mask2Former.mask2former import add_maskformer2_config
-from utils.seg_class import ADE20K_150_CATEGORIES
 
 from tqdm.auto import tqdm
 from transformers import AutoProcessor, Blip2ForConditionalGeneration
@@ -101,8 +93,8 @@ def load_pipeline(args, accelerator, enable_xformers_memory_efficient_attention)
     tokenizer = CLIPTokenizer.from_pretrained(args.sd_model_path, subfolder="tokenizer")
     vae = AutoencoderKL.from_pretrained(args.sd_model_path, subfolder="vae")
     feature_extractor = CLIPImageProcessor.from_pretrained(f"{args.sd_model_path}/feature_extractor")
-    unet = UNet2DConditionModel.from_pretrained(args.holisdip_model_path, subfolder="unet")
-    controlnet = ControlNetModel.from_pretrained(args.holisdip_model_path, subfolder="controlnet")
+    unet = UNet2DConditionModel.from_pretrained(args.model_path, subfolder="unet")
+    controlnet = ControlNetModel.from_pretrained(args.model_path, subfolder="controlnet")
     
     # Freeze vae and text_encoder
     vae.requires_grad_(False)
@@ -276,7 +268,7 @@ def main(args, enable_xformers_memory_efficient_attention=True,):
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
     if accelerator.is_main_process:
-        accelerator.init_trackers("HoliSDiP")
+        accelerator.init_trackers("DTPSR")
 
     pipeline = load_pipeline(args, accelerator, enable_xformers_memory_efficient_attention)
     model = load_tag_model(args, accelerator.device)
@@ -383,7 +375,7 @@ def main(args, enable_xformers_memory_efficient_attention=True,):
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--holisdip_model_path", type=str, default=None)
+    parser.add_argument("--model_path", type=str, default=None)
     parser.add_argument("--ram_ft_path", type=str, default='preset/models/DAPE.pth')
     parser.add_argument("--sd_model_path", type=str, default='preset/models/stable-diffusion-2-base')
     parser.add_argument("--prompt", type=str, default="") # user can add self-prompt to improve the results

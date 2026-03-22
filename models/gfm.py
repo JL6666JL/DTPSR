@@ -88,35 +88,3 @@ class GFM(nn.Module):
         
         return fused_output
 
-
-# create a 3 layer 1x1 convolutional network as encoder
-class SCM_encoder(nn.Module):
-    def __init__(self, input_nc, output_nc=128):
-        super(SCM_encoder, self).__init__()
-        self.conv1 = nn.Conv2d(input_nc, input_nc//2, kernel_size=1)
-        self.conv2 = nn.Conv2d(input_nc//2, input_nc//4, kernel_size=1)
-        self.conv3 = nn.Conv2d(input_nc//4, output_nc, kernel_size=1)
-        self.act = nn.SiLU()
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.act(x)
-        x = self.conv2(x)
-        x = self.act(x)
-        x = self.conv3(x)
-
-        return x
-
-# descripton-CLIP MAP
-class DCM_encoder(nn.Module):
-    def __init__(self, input_nc=78848, output_nc=1024):
-        super().__init__()
-        hidden_nc = 4096
-        self.encoder = nn.Sequential(
-            nn.Linear(input_nc, hidden_nc),
-            nn.ReLU(),
-            nn.Linear(hidden_nc, output_nc)  # 最终维度 1024
-        )
-    
-    def forward(self, x):
-        return self.encoder(x)

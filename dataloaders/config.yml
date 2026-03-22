@@ -1,7 +1,5 @@
-# gt_path: ['/data2/jianglei/dataset/HoliSDiP/LSDIR','/data2/jianglei/dataset/HoliSDiP/FFHQ']
-gt_path: ['/data1/jianglei/work/dataset/HoliSDiP/LSDIR','/data1/jianglei/work/dataset/HoliSDiP/FFHQ']
-# gt_path: ["/data1/jianglei/work/dataset/HoliSDiP/test_dataset"]
-seg_description_emb_path: '/data2/jianglei/Holidataset/FFHQ_LSDIR/lfhf_local_descriptions'
+gt_path: ['/data1/jianglei/work/dataset/DTPSR/LSDIR','/data1/jianglei/work/dataset/DTPSR/FFHQ']
+seg_description_emb_path: '/data2/jianglei/DTPSRdataset/FFHQ_LSDIR/lfhf_local_descriptions'
 gt_size: 512
 
 scale: 4

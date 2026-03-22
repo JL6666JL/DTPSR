@@ -1,7 +1,3 @@
-'''
- * HoliSDiP: Image Super-Resolution via Holistic Semantics and Diffusion Prior 
- * Modified from SeeSR (https://github.com/cswry/SeeSR)
-'''
 import argparse
 import logging
 import math
@@ -36,7 +32,6 @@ from diffusers import (
 )
 from models.controlnet import ControlNetModel
 from models.unet_2d_condition import UNet2DConditionModel
-from models.gfm import SCM_encoder, DCM_encoder
 from diffusers.optimization import get_scheduler
 from diffusers.utils import check_min_version, is_wandb_available
 from diffusers.utils.import_utils import is_xformers_available
@@ -551,7 +546,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--tracker_project_name",
         type=str,
-        default="HoliSDiP",
+        default="DTPSR",
         help=(
             "The `project_name` argument passed to Accelerator.init_trackers for"
             " more information see https://huggingface.co/docs/accelerate/v0.17.0/en/package_reference/accelerator#accelerate.Accelerator"
